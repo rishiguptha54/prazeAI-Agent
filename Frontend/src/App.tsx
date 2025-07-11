@@ -371,8 +371,7 @@ function ChatInterface() {
       );
     }
   };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+const handleSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
   if (!input.trim() || isLoading) return;
 
@@ -399,37 +398,57 @@ function ChatInterface() {
 
     if (!response.ok) throw new Error(`n8n error: ${response.status}`);
 
-    // 🔁 Wait until Supabase has stored the assistant message
-    let retries = 10;
-    let found = false;
-    while (retries-- > 0 && !found) {
+    // 🔁 Poll Supabase for AI response with timeout
+    let retries = 15;
+    let foundAssistant = false;
+
+    while (retries-- > 0 && !foundAssistant) {
       const { data, error } = await supabase
         .from('messages')
         .select('*')
         .eq('session_id', sessionId)
         .order('created_at', { ascending: true });
 
-      if (data?.some(msg => (msg.message as any).type === 'ai')) {
-        found = true;
-        const formattedMessages = data.map(msg => {
-          const message = msg.message as DatabaseMessage;
-          return {
-            id: msg.id,
-            role: message.type === 'ai' ? 'assistant' : 'user',
-            content: message.content,
-            timestamp: new Date(msg.created_at)
-          };
-        });
-        setMessages(formattedMessages as Message[]);
-      } else {
-        await new Promise(res => setTimeout(res, 500)); // wait 0.5s
+      if (error) {
+        console.error('Polling error:', error);
+        break;
       }
+
+      const formattedMessages = data?.map(msg => {
+        const message = msg.message as DatabaseMessage;
+        return {
+          id: msg.id,
+          role: message.type === 'ai' ? 'assistant' : 'user',
+          content: message.content,
+          timestamp: new Date(msg.created_at)
+        };
+      }) as Message[];
+
+      // Check if AI response exists
+      foundAssistant = formattedMessages.some(m => m.role === 'assistant');
+
+      if (foundAssistant) {
+        setMessages(formattedMessages);
+        break;
+      }
+
+      await new Promise(res => setTimeout(res, 800)); // Wait 0.8s before retry
     }
 
-    await loadSessions(); // sidebar refresh
+    // Also update sessions (sidebar)
+    await loadSessions();
 
-    if (!found) {
-      throw new Error("Assistant message not found in time");
+    if (!foundAssistant) {
+      // Give a fallback message
+      setMessages(prev => [
+        ...prev,
+        {
+          id: uuidv4(),
+          role: 'assistant',
+          content: 'Oops! AI response took too long. Please try again.',
+          timestamp: new Date()
+        }
+      ]);
     }
 
   } catch (error) {
@@ -438,7 +457,7 @@ function ChatInterface() {
     const errorMessage: Message = {
       id: uuidv4(),
       role: 'assistant',
-      content: 'Oops! The message took too long to save. Please refresh or try again.',
+      content: 'Error: Unable to reach n8n server or Supabase.',
       timestamp: new Date()
     };
 
