@@ -371,7 +371,7 @@ function ChatInterface() {
       );
     }
   };
-const handleSubmit = async (e: React.FormEvent) => {
+ const handleSubmit = async (e: React.FormEvent) => {
   e.preventDefault();
   if (!input.trim() || isLoading) return;
 
@@ -387,6 +387,7 @@ const handleSubmit = async (e: React.FormEvent) => {
   setIsLoading(true);
 
   try {
+    // Step 1: Send to n8n
     const response = await fetch(import.meta.env.VITE_N8N_END_POINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -398,11 +399,11 @@ const handleSubmit = async (e: React.FormEvent) => {
 
     if (!response.ok) throw new Error(`n8n error: ${response.status}`);
 
-    // 🔁 Poll Supabase for AI response with timeout
+    // Step 2: Poll Supabase to wait for AI response
     let retries = 15;
-    let foundAssistant = false;
+    let found = false;
 
-    while (retries-- > 0 && !foundAssistant) {
+    while (retries-- > 0 && !found) {
       const { data, error } = await supabase
         .from('messages')
         .select('*')
@@ -414,7 +415,7 @@ const handleSubmit = async (e: React.FormEvent) => {
         break;
       }
 
-      const formattedMessages = data?.map(msg => {
+      const formatted = (data || []).map(msg => {
         const message = msg.message as DatabaseMessage;
         return {
           id: msg.id,
@@ -424,48 +425,38 @@ const handleSubmit = async (e: React.FormEvent) => {
         };
       }) as Message[];
 
-      // Check if AI response exists
-      foundAssistant = formattedMessages.some(m => m.role === 'assistant');
-
-      if (foundAssistant) {
-        setMessages(formattedMessages);
-        break;
+      const hasAI = formatted.some(m => m.role === 'assistant');
+      if (hasAI) {
+        setMessages(formatted);
+        found = true;
+      } else {
+        await new Promise(res => setTimeout(res, 800)); // wait 800ms
       }
-
-      await new Promise(res => setTimeout(res, 800)); // Wait 0.8s before retry
     }
 
-    // Also update sessions (sidebar)
+    if (!found) {
+      setMessages(prev => [...prev, {
+        id: uuidv4(),
+        role: 'assistant',
+        content: '⏱ AI response took too long. Try again.',
+        timestamp: new Date()
+      }]);
+    }
+
     await loadSessions();
-
-    if (!foundAssistant) {
-      // Give a fallback message
-      setMessages(prev => [
-        ...prev,
-        {
-          id: uuidv4(),
-          role: 'assistant',
-          content: 'Oops! AI response took too long. Please try again.',
-          timestamp: new Date()
-        }
-      ]);
-    }
-
-  } catch (error) {
-    console.error('Chat submission error:', error);
-
-    const errorMessage: Message = {
+  } catch (err) {
+    console.error('Submit error:', err);
+    setMessages(prev => [...prev, {
       id: uuidv4(),
       role: 'assistant',
-      content: 'Error: Unable to reach n8n server or Supabase.',
+      content: '🚫 Error reaching server. Try again later.',
       timestamp: new Date()
-    };
-
-    setMessages(prev => [...prev, errorMessage]);
+    }]);
   } finally {
     setIsLoading(false);
   }
 };
+
 
   return (
     <div className="flex h-screen w-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white overflow-hidden">
