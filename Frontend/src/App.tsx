@@ -373,59 +373,80 @@ function ChatInterface() {
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
+  e.preventDefault();
+  if (!input.trim() || isLoading) return;
 
-    const userMessage: Message = {
+  const userMessage: Message = {
+    id: uuidv4(),
+    role: 'user',
+    content: input,
+    timestamp: new Date()
+  };
+
+  setMessages(prev => [...prev, userMessage]);
+  setInput('');
+  setIsLoading(true);
+
+  try {
+    const response = await fetch(import.meta.env.VITE_N8N_END_POINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: input,
+        session_id: sessionId
+      }),
+    });
+
+    if (!response.ok) throw new Error(`n8n error: ${response.status}`);
+
+    // 🔁 Wait until Supabase has stored the assistant message
+    let retries = 10;
+    let found = false;
+    while (retries-- > 0 && !found) {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('session_id', sessionId)
+        .order('created_at', { ascending: true });
+
+      if (data?.some(msg => (msg.message as any).type === 'ai')) {
+        found = true;
+        const formattedMessages = data.map(msg => {
+          const message = msg.message as DatabaseMessage;
+          return {
+            id: msg.id,
+            role: message.type === 'ai' ? 'assistant' : 'user',
+            content: message.content,
+            timestamp: new Date(msg.created_at)
+          };
+        });
+        setMessages(formattedMessages as Message[]);
+      } else {
+        await new Promise(res => setTimeout(res, 500)); // wait 0.5s
+      }
+    }
+
+    await loadSessions(); // sidebar refresh
+
+    if (!found) {
+      throw new Error("Assistant message not found in time");
+    }
+
+  } catch (error) {
+    console.error('Chat submission error:', error);
+
+    const errorMessage: Message = {
       id: uuidv4(),
-      role: 'user',
-      content: input,
+      role: 'assistant',
+      content: 'Oops! The message took too long to save. Please refresh or try again.',
       timestamp: new Date()
     };
 
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setIsLoading(true);
-
-    try {
-      const response = await fetch(import.meta.env.VITE_N8N_END_POINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query: input,
-          session_id: sessionId
-        }),
-      });
-
-      if (!response.ok) throw new Error(`n8n error: ${response.status}`);
-
-      const result = await response.json(); // { answer: "..." }
-
-      const assistantMessage: Message = {
-        id: uuidv4(),
-        role: 'assistant',
-        content: result.answer || '...',
-        timestamp: new Date()
-      };
-
-      setMessages(prev => [...prev, assistantMessage]);
-      await loadSessions(); // Update sidebar session titles
-
-    } catch (error) {
-      console.error('Chat submission error:', error);
-
-      const errorMessage: Message = {
-        id: uuidv4(),
-        role: 'assistant',
-        content: 'Oops! The server was slow to wake up or something went wrong. Please try again.',
-        timestamp: new Date()
-      };
-
-      setMessages(prev => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    setMessages(prev => [...prev, errorMessage]);
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   return (
     <div className="flex h-screen w-screen bg-gradient-to-br from-gray-950 via-gray-900 to-black text-white overflow-hidden">
