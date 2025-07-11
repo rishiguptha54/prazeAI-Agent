@@ -242,7 +242,6 @@
 
 // export default App;
 
-
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
@@ -277,6 +276,11 @@ function ChatInterface() {
   useEffect(() => {
     loadMessages();
   }, [sessionId]);
+
+  useEffect(() => {
+    // Warm up n8n to prevent cold-start delay
+    fetch(import.meta.env.VITE_N8N_END_POINT, { method: 'OPTIONS' });
+  }, []);
 
   const loadSessions = async () => {
     const { data: messagesData } = await supabase
@@ -389,27 +393,31 @@ function ChatInterface() {
     try {
       const response = await fetch(import.meta.env.VITE_N8N_END_POINT, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           query: input,
           session_id: sessionId
         }),
       });
 
+      if (!response.ok) {
+        throw new Error(`n8n error: ${response.status}`);
+      }
+
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       await loadMessages();
       await loadSessions();
     } catch (error) {
-      console.error('Error:', error);
+      console.error('Chat submission error:', error);
+
       const errorMessage: Message = {
         id: uuidv4(),
         role: 'assistant',
-        content: 'Ayyoo, there was an error processing your request. Please try again.',
+        content: 'Oops! The server was slow to wake up or something went wrong. Please try again in a few seconds.',
         timestamp: new Date()
       };
+
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
