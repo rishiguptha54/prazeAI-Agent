@@ -242,15 +242,15 @@
 
 // export default App;
 
+
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { Send, Loader2, Sparkles } from 'lucide-react';
-import { ChatMessage } from './components/ChatMessage';
-import { Sidebar } from './components/Sidebar';
 import { supabase } from './lib/supabase';
 import { Message, DatabaseMessage, ChatSession } from './types';
 import HeroGeometric from './components/ui/modern-hero-section';
+import { Sidebar } from './components/Sidebar';
 
 function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -278,7 +278,6 @@ function ChatInterface() {
   }, [sessionId]);
 
   useEffect(() => {
-    // Warm up n8n to prevent cold-start delay
     fetch(import.meta.env.VITE_N8N_END_POINT, { method: 'OPTIONS' });
   }, []);
 
@@ -290,7 +289,6 @@ function ChatInterface() {
 
     if (messagesData) {
       const sessionsMap = new Map<string, ChatSession>();
-
       messagesData.forEach(msg => {
         if (!sessionsMap.has(msg.session_id)) {
           const message = msg.message as DatabaseMessage;
@@ -302,7 +300,6 @@ function ChatInterface() {
           });
         }
       });
-
       setSessions(Array.from(sessionsMap.values()));
     }
   };
@@ -400,21 +397,27 @@ function ChatInterface() {
         }),
       });
 
-      if (!response.ok) {
-        throw new Error(`n8n error: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`n8n error: ${response.status}`);
 
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const result = await response.json(); // { answer: "..." }
 
-      await loadMessages();
-      await loadSessions();
+      const assistantMessage: Message = {
+        id: uuidv4(),
+        role: 'assistant',
+        content: result.answer || '...',
+        timestamp: new Date()
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
+      await loadSessions(); // Update sidebar session titles
+
     } catch (error) {
       console.error('Chat submission error:', error);
 
       const errorMessage: Message = {
         id: uuidv4(),
         role: 'assistant',
-        content: 'Oops! The server was slow to wake up or something went wrong. Please try again in a few seconds.',
+        content: 'Oops! The server was slow to wake up or something went wrong. Please try again.',
         timestamp: new Date()
       };
 
@@ -527,3 +530,4 @@ function App() {
 }
 
 export default App;
+
