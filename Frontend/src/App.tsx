@@ -509,7 +509,7 @@ function ChatInterface() {
             <img src="/image.png" alt="PrazeAI Logo" className="w-10 h-10 rounded-full" />
             <div>
               <h1 className="text-3xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-blue-500">PrazeAI</h1>
-              <p className="text-sm text-blue-200 italic">Smart Conversations, Praze-Worthy Answers.</p>
+              <p className="text-sm text-blue-200 italic">Your Personalized Guidance for Learning, Tools & Career Paths.</p>
             </div>
           </div>
           <button
