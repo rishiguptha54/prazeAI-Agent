@@ -322,10 +322,11 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import { Send, Loader2, Sparkles } from 'lucide-react';
+import { ChatMessage } from './components/ChatMessage';
+import { Sidebar } from './components/Sidebar';
 import { supabase } from './lib/supabase';
 import { Message, DatabaseMessage, ChatSession } from './types';
 import HeroGeometric from './components/ui/modern-hero-section';
-import { Sidebar } from './components/Sidebar';
 
 function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -352,10 +353,6 @@ function ChatInterface() {
     loadMessages();
   }, [sessionId]);
 
-  useEffect(() => {
-    fetch(import.meta.env.VITE_N8N_END_POINT, { method: 'OPTIONS' });
-  }, []);
-
   const loadSessions = async () => {
     const { data: messagesData } = await supabase
       .from('messages')
@@ -364,6 +361,7 @@ function ChatInterface() {
 
     if (messagesData) {
       const sessionsMap = new Map<string, ChatSession>();
+
       messagesData.forEach(msg => {
         if (!sessionsMap.has(msg.session_id)) {
           const message = msg.message as DatabaseMessage;
@@ -375,6 +373,7 @@ function ChatInterface() {
           });
         }
       });
+
       setSessions(Array.from(sessionsMap.values()));
     }
   };
@@ -463,81 +462,30 @@ function ChatInterface() {
     setIsLoading(true);
 
     try {
-      // Optional: Persist user message to Supabase
-      await supabase.from('messages').insert({
-        session_id: sessionId,
-        message: {
-          type: 'user',
-          content: input
-        },
-        title: input.slice(0, 30)
-      });
-
-      // Step 1: Send to n8n
       const response = await fetch(import.meta.env.VITE_N8N_END_POINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           query: input,
           session_id: sessionId
         }),
       });
 
-      if (!response.ok) throw new Error(`n8n error: ${response.status}`);
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Step 2: Poll Supabase to wait for AI response
-      let retries = 15;
-      let found = false;
-
-      while (retries-- > 0 && !found) {
-        const { data, error } = await supabase
-          .from('messages')
-          .select('*')
-          .eq('session_id', sessionId)
-          .order('created_at', { ascending: true });
-
-        if (error) {
-          console.error('Polling error:', error);
-          break;
-        }
-
-        const formatted = (data || []).map(msg => {
-          const message = msg.message as DatabaseMessage;
-          return {
-            id: msg.id,
-            role: message.type === 'ai' ? 'assistant' : 'user',
-            content: message.content,
-            timestamp: new Date(msg.created_at)
-          };
-        }) as Message[];
-
-        const lastAIMessage = formatted.reverse().find(m => m.role === 'assistant');
-        if (lastAIMessage && !messages.some(m => m.content === lastAIMessage.content)) {
-          setMessages(prev => [...prev, lastAIMessage]);
-          found = true;
-        } else {
-          await new Promise(res => setTimeout(res, 800));
-        }
-      }
-
-      if (!found) {
-        setMessages(prev => [...prev, {
-          id: uuidv4(),
-          role: 'assistant',
-          content: '⏱ AI response took too long. Try again.',
-          timestamp: new Date()
-        }]);
-      }
-
+      await loadMessages();
       await loadSessions();
-    } catch (err) {
-      console.error('Submit error:', err);
-      setMessages(prev => [...prev, {
+    } catch (error) {
+      console.error('Error:', error);
+      const errorMessage: Message = {
         id: uuidv4(),
         role: 'assistant',
-        content: '🚫 Error reaching server. Try again later.',
+        content: 'Ayyoo, there was an error processing your request. Please try again.',
         timestamp: new Date()
-      }]);
+      };
+      setMessages(prev => [...prev, errorMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -646,4 +594,3 @@ function App() {
 }
 
 export default App;
-
